@@ -1,0 +1,2 @@
+include ':app', ':annotation', ':codegen'
+rootProject.name='Settings Annotation'
