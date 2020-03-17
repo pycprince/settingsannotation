@@ -3,16 +3,16 @@ package com.codespring.settingsannotation
 import com.codespring.settingsannotation.annotation.Pref
 import com.codespring.settingsannotation.annotation.SharedPrefs
 
-@SharedPrefs(privatePrefKeys = false)
-interface MySettings {
+@SharedPrefs(showTraces = true)
+interface InstanceSettings {
     @Pref
-    var apiToken: String
-    @Pref
-    var sinchNumber: String
-    @Pref("false")
-    var activeSession: Boolean
-    @Pref("334kdkjf")
     var wifiPassword: String
-    @Pref("20")
-    var someInt: Int
+    @Pref
+    var sessionInProgress: Boolean
+    @Pref
+    var termsAccepted: Boolean
+    @Pref
+    var instanceId: String
+    @Pref
+    var isCheckedIn: Boolean
 }

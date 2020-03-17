@@ -5,5 +5,6 @@ package com.codespring.settingsannotation.annotation
 annotation class SharedPrefs(
     val privatePrefKeys: Boolean = true,
     val privateFileKey: Boolean = false,
-    val useKoin: Boolean = false
+    val useKoin: Boolean = false,
+    val showTraces: Boolean = false
 )

@@ -24,6 +24,7 @@ class SharedPrefsGenerator : AbstractProcessor() {
     private var privatePrefKeys = true
     private var privateFileKey = false
     private var useKoin = false
+    private var showTraces = false
 
     override fun init(env: ProcessingEnvironment) {
         super.init(env)
@@ -44,6 +45,7 @@ class SharedPrefsGenerator : AbstractProcessor() {
             privatePrefKeys = annotationValues.privatePrefKeys
             privateFileKey = annotationValues.privateFileKey
             useKoin = annotationValues.useKoin
+            showTraces = annotationValues.showTraces
 
             val prefsList = getPrefsList(roundEnv)
             val varList = getVarList(element)
@@ -65,7 +67,12 @@ class SharedPrefsGenerator : AbstractProcessor() {
     private fun assignTypeToPrefs(
         prefList: HashMap<String, PrefValues>,
         varList: HashMap<String, String>
-    ) : List<PrefValues> = prefList.map { it.value.apply { type = varList[it.key] } }
+    ) : List<PrefValues> {
+        return prefList.map {
+            messager.w("Mapping ${it.key} to type ${varList[it.key]}  \n")
+            it.value.apply { type = varList[it.key] }
+        }
+    }
 
     private fun getVarList(element: Element) : HashMap<String, String> {
         val varSet = hashMapOf<String, String>()
@@ -89,6 +96,11 @@ class SharedPrefsGenerator : AbstractProcessor() {
                 }
             }
         }
+        if (showTraces) {
+            varSet.forEach { (key, value) ->
+                messager.w("Found var $key type $value  \n")
+            }
+        }
         return varSet
     }
 
@@ -103,6 +115,11 @@ class SharedPrefsGenerator : AbstractProcessor() {
             val defaultValue = if (values.defaultValue == "[null]") null else values.defaultValue
             val testValue = if (values.testValue == "[null]") null else values.testValue
             map[name] = PrefValues(name, defaultValue, testValue)
+        }
+        if (showTraces) {
+            map.forEach { (name, values) ->
+                messager.w("Pref $name with default ${values.defaultValue}  \n")
+            }
         }
         return map
     }
@@ -127,6 +144,7 @@ class SharedPrefsGenerator : AbstractProcessor() {
                     ClassName("android.content", "Context"))
                 .build())
         }
+        classBuilder.addSuperinterface(ClassName(packageName, className))
 
         val variables = mutableListOf<PropertySpec>()
         val keys = mutableListOf<PropertySpec>()
@@ -150,13 +168,13 @@ class SharedPrefsGenerator : AbstractProcessor() {
                 "Float" -> Float::class
                 "Double" -> Double::class
                 "Long" -> Long::class
-                else -> throw IllegalArgumentException("Properties must be a primitive type : not ${it.type}")
+                else -> throw IllegalArgumentException("Properties must be a primitive type : ${it.name} is ${it.type}")
             }
             val defaultValue = getDefaultValueFor(it.type, it.defaultValue)
             val returnStatement = "return prefs.get${it.type}(${it.name.toKey()}, $defaultValue)" +
                     if (it.type == "String") " ?: $defaultValue" else ""
 
-            variables.add(PropertySpec.builder(it.name, clazz)
+            variables.add(PropertySpec.builder(it.name, clazz, listOf(KModifier.OVERRIDE))
                 .mutable()
                 .getter(FunSpec.getterBuilder()
                     .addStatement(returnStatement)
