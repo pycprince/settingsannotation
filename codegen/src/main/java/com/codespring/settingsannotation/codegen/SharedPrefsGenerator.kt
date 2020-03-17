@@ -138,13 +138,15 @@ class SharedPrefsGenerator : AbstractProcessor() {
     private fun generateContent(className: String, packageName: String, prefs: List<PrefValues>) : FileSpec {
         val fileBuilder = FileSpec.builder(packageName, "${className}Prefs")
         val classBuilder = TypeSpec.classBuilder("${className}Prefs")
+            .addSuperinterface(ClassName(packageName, className))
         if (!useKoin) {
             classBuilder.primaryConstructor(FunSpec.constructorBuilder()
                 .addParameter("context",
                     ClassName("android.content", "Context"))
                 .build())
+        } else {
+            classBuilder.addSuperinterface(ClassName("org.koin.core", "KoinComponent"))
         }
-        classBuilder.addSuperinterface(ClassName(packageName, className))
 
         val variables = mutableListOf<PropertySpec>()
         val keys = mutableListOf<PropertySpec>()
@@ -229,7 +231,8 @@ class SharedPrefsGenerator : AbstractProcessor() {
         classBuilder.addFunction(putFunction.build())
         classBuilder.addType(companionObject.build())
         if (useKoin) {
-            fileBuilder.addImport("org.koin.core", "KoinComponent", "inject", "parametersOf")
+            fileBuilder.addImport("org.koin.core", "KoinComponent", "inject")
+            fileBuilder.addImport("org.koin.core.parameter", "parametersOf")
         }
         return fileBuilder
             .addImport("android.content", "SharedPreferences", "SharedPreferences.Editor")
