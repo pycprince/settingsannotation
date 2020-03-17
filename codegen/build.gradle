@@ -1,6 +1,10 @@
 apply plugin: 'java-library'
 apply plugin: 'kotlin'
 apply plugin: 'kotlin-kapt'
+apply plugin: 'maven'
+
+group = 'com.codespring.settingsannotation'
+version '0.1.1'
 
 sourceSets {
     main {
