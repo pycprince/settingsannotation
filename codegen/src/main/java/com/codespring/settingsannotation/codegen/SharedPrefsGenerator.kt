@@ -1,6 +1,6 @@
 package com.codespring.settingsannotation.codegen
 
-import com.codespring.settingsannotation.annotation.Pref
+import com.codespring.settingsannotation.annotation.Default
 import com.codespring.settingsannotation.annotation.SharedPrefs
 import com.google.auto.service.AutoService
 import com.squareup.kotlinpoet.*
@@ -32,7 +32,7 @@ class SharedPrefsGenerator : AbstractProcessor() {
     }
 
     override fun getSupportedAnnotationTypes(): MutableSet<String> {
-        return mutableSetOf(SharedPrefs::class.java.name, Pref::class.java.name)
+        return mutableSetOf(SharedPrefs::class.java.name, Default::class.java.name)
     }
 
     override fun getSupportedSourceVersion(): SourceVersion {
@@ -47,9 +47,9 @@ class SharedPrefsGenerator : AbstractProcessor() {
             useKoin = annotationValues.useKoin
             showTraces = annotationValues.showTraces
 
-            val prefsList = getPrefsList(roundEnv)
+            val defaults = getDefaultList(roundEnv)
             val varList = getVarList(element)
-            val prefs = assignTypeToPrefs(prefsList, varList)
+            val prefs = assignDefaultsToPrefs(defaults, varList)
 
             val className = element.simpleName.toString()
             val packageName = processingEnv.elementUtils.getPackageOf(element).toString()
@@ -64,14 +64,15 @@ class SharedPrefsGenerator : AbstractProcessor() {
         return true
     }
 
-    private fun assignTypeToPrefs(
-        prefList: HashMap<String, PrefValues>,
+    private fun assignDefaultsToPrefs(
+        defaultList: HashMap<String, String?>,
         varList: HashMap<String, String>
-    ) : List<PrefValues> {
-        return prefList.map {
-            messager.w("Mapping ${it.key} to type ${varList[it.key]}  \n")
-            it.value.apply { type = varList[it.key] }
-        }
+    ) : List<PrefValues> = varList.map {
+        PrefValues(
+            name = it.key,
+            type = it.value,
+            defaultValue = defaultList[it.key]
+        )
     }
 
     private fun getVarList(element: Element) : HashMap<String, String> {
@@ -104,21 +105,20 @@ class SharedPrefsGenerator : AbstractProcessor() {
         return varSet
     }
 
-    private fun getPrefsList(roundEnv: RoundEnvironment) : HashMap<String, PrefValues> {
-        val map = HashMap<String, PrefValues>()
-        roundEnv.getElementsAnnotatedWith(Pref::class.java)?.map {
-            val values = it.getAnnotation(Pref::class.java)
+    private fun getDefaultList(roundEnv: RoundEnvironment) : HashMap<String, String?> {
+        val map = HashMap<String, String?>()
+        roundEnv.getElementsAnnotatedWith(Default::class.java)?.forEach {
+            val values = it.getAnnotation(Default::class.java)
             val name = when (val index = it.simpleName.indexOf("$")) {
                 -1 -> it.simpleName.toString()
                 else -> it.simpleName.substring(0, index)
             }
-            val defaultValue = if (values.defaultValue == "[null]") null else values.defaultValue
-            val testValue = if (values.testValue == "[null]") null else values.testValue
-            map[name] = PrefValues(name, defaultValue, testValue)
+            val default = if (values.defaultValue == "[null]") null else values.defaultValue
+            map += name to default
         }
         if (showTraces) {
-            map.forEach { (name, values) ->
-                messager.w("Pref $name with default ${values.defaultValue}  \n")
+            map.forEach { (name, default) ->
+                messager.w(" default for $name is $default  \n")
             }
         }
         return map
@@ -136,7 +136,7 @@ class SharedPrefsGenerator : AbstractProcessor() {
         }
 
     private fun generateContent(className: String, packageName: String, prefs: List<PrefValues>) : FileSpec {
-        val fileBuilder = FileSpec.builder("$packageName", "${className}Prefs")
+        val fileBuilder = FileSpec.builder(packageName, "${className}Prefs")
         val classBuilder = TypeSpec.classBuilder("${className}Prefs")
         if (!useKoin) {
             classBuilder.primaryConstructor(FunSpec.constructorBuilder()
@@ -252,7 +252,6 @@ class SharedPrefsGenerator : AbstractProcessor() {
 }
 
 internal fun Messager.w(message: String) = this.printMessage(Diagnostic.Kind.WARNING, message)
-internal fun Messager.n(message: String) = this.printMessage(Diagnostic.Kind.NOTE, message)
 
 internal fun String.split(predicate: (Char) -> Boolean, translation: ((initial: String) -> String) = { it }) : List<String> {
     var lastIndex = 0
