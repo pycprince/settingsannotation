@@ -2,6 +2,7 @@ package com.codespring.settingsannotation.codegen
 
 import com.codespring.settingsannotation.annotation.Default
 import com.codespring.settingsannotation.annotation.OnReset
+import com.codespring.settingsannotation.annotation.Retain
 import com.codespring.settingsannotation.annotation.SharedPrefs
 import com.google.auto.service.AutoService
 import com.squareup.kotlinpoet.*
@@ -56,6 +57,7 @@ class SharedPrefsGenerator : AbstractProcessor() {
             val defaults = getDefaultList(roundEnv)
             val varList = getVarList(element)
             val prefs = assignDefaultsToPrefs(defaults, varList)
+            val retentionList = getRetentionList(roundEnv)
 
             val resets = roundEnv.getElementsAnnotatedWith(OnReset::class.java)?.filter {
                 val enclosingAnnotation = it.enclosingElement?.getAnnotation(SharedPrefs::class.java)
@@ -68,9 +70,10 @@ class SharedPrefsGenerator : AbstractProcessor() {
 
             if (showTraces) {
                 messager.w(" resets for $className : $resets  \n")
+                messager.w(" retention list for $className : $retentionList  \n")
             }
 
-            val spec = generateContent(className, packageName, prefs, resets )
+            val spec = generateContent(className, packageName, prefs, retentionList, resets)
             processingEnv.options[KAPT_KOTLIN_GENERATED_OPTION_NAME]?.let {
                 val file = File(it)
                 spec.writeTo(file)
@@ -89,6 +92,15 @@ class SharedPrefsGenerator : AbstractProcessor() {
             defaultValue = defaultList[it.key]
         )
     }
+
+    private fun getRetentionList(roundEnv: RoundEnvironment) : List<String> =
+        roundEnv.getElementsAnnotatedWith(Retain::class.java)?.map {
+            val name = when (val memberIndex = it.simpleName.indexOf("$")) {
+                -1 -> it.simpleName.toString()
+                else -> it.simpleName.substring(0, memberIndex)
+            }
+            name.toKey()
+        } ?: listOf()
 
     private fun getVarList(element: Element) : HashMap<String, String> {
         val varSet = hashMapOf<String, String>()
@@ -154,6 +166,7 @@ class SharedPrefsGenerator : AbstractProcessor() {
         className: String,
         packageName: String,
         prefs: List<PrefValues>,
+        retentionList: List<String>,
         resets: List<String>
     ) : FileSpec {
         val fileBuilder = FileSpec.builder(packageName, "${className}Prefs")
@@ -220,36 +233,8 @@ class SharedPrefsGenerator : AbstractProcessor() {
                 .initializer("\"$packageName.$className.${className.toCamelCase()}_PREFS\"")
                 .build()
 
-        val putFunction = FunSpec.builder("putValue")
-            .addParameter("key", String::class)
-            .addParameter("value", Any::class.asTypeName().copy(nullable = true))
-            .addCode("""
-                with (editor) {
-                    if (value == null) {
-                        remove(key)
-                        return
-                    }
-                    when (value) {
-                        is Int -> putInt(key, value)
-                        is Boolean -> putBoolean(key, value)
-                        is String -> putString(key, value)
-                        is Long -> putLong(key, value)
-                        is Float -> putFloat(key, value)
-                        else -> throw IllegalArgumentException("Unable to infer type for storing in shared preferences")
-                    }
-                    apply()
-                }
-            """.trimIndent().replace(" ", "·"))
-
-        val resetFunctions = mutableListOf<FunSpec>()
-        resets.forEach { name ->
-            val func = FunSpec.builder(name)
-                .addModifiers(KModifier.OVERRIDE)
-            keys.forEach {
-                func.addCode("putValue(${it.name}, null)\n")
-            }
-            resetFunctions.add(func.build())
-        }
+        val putFunction = createPutFunction()
+        val resetMethods = createResetMethods(resets, keys, retentionList)
 
         val companionObject = TypeSpec.companionObjectBuilder()
             .addProperties(keys)
@@ -260,7 +245,7 @@ class SharedPrefsGenerator : AbstractProcessor() {
             .build())
         classBuilder.addProperties(variables)
         classBuilder.addFunction(putFunction.build())
-        classBuilder.addFunctions(resetFunctions)
+        classBuilder.addFunctions(resetMethods)
         classBuilder.addType(companionObject.build())
         if (useKoin) {
             fileBuilder.addImport("org.koin.core", "KoinComponent", "inject")
@@ -269,6 +254,51 @@ class SharedPrefsGenerator : AbstractProcessor() {
         return fileBuilder
             .addImport("android.content", "SharedPreferences", "SharedPreferences.Editor")
             .addType(classBuilder.build()).build()
+    }
+
+    private fun createPutFunction(): FunSpec.Builder {
+        val putFunction = FunSpec.builder("putValue")
+            .addParameter("key", String::class)
+            .addParameter("value", Any::class.asTypeName().copy(nullable = true))
+            .addCode(
+                """
+                    with (editor) {
+                        if (value == null) {
+                            remove(key)
+                            return
+                        }
+                        when (value) {
+                            is Int -> putInt(key, value)
+                            is Boolean -> putBoolean(key, value)
+                            is String -> putString(key, value)
+                            is Long -> putLong(key, value)
+                            is Float -> putFloat(key, value)
+                            else -> throw IllegalArgumentException("Unable to infer type for storing in shared preferences")
+                        }
+                        apply()
+                    }
+                """.trimIndent().replace(" ", "·")
+            )
+        return putFunction
+    }
+
+    private fun createResetMethods(
+        resets: List<String>,
+        keys: MutableList<PropertySpec>,
+        retentionList: List<String>
+    ): MutableList<FunSpec> {
+        val resetMethods = mutableListOf<FunSpec>()
+        resets.forEach { name ->
+            val func = FunSpec.builder(name)
+                .addModifiers(KModifier.OVERRIDE)
+            for (spec in keys) {
+                // Do not reset variables marked @Retain
+                if (spec.name in retentionList) continue
+                func.addCode("putValue(${spec.name}, null)\n")
+            }
+            resetMethods.add(func.build())
+        }
+        return resetMethods
     }
 
     private fun getSharedPreferencesPropertyBuilder(name: String) : PropertySpec.Builder {
