@@ -1,6 +1,7 @@
 package com.codespring.settingsannotation.codegen
 
 import com.codespring.settingsannotation.annotation.Default
+import com.codespring.settingsannotation.annotation.OnReset
 import com.codespring.settingsannotation.annotation.SharedPrefs
 import com.google.auto.service.AutoService
 import com.squareup.kotlinpoet.*
@@ -32,15 +33,20 @@ class SharedPrefsGenerator : AbstractProcessor() {
     }
 
     override fun getSupportedAnnotationTypes(): MutableSet<String> {
-        return mutableSetOf(SharedPrefs::class.java.name, Default::class.java.name)
+        return mutableSetOf(
+            SharedPrefs::class.java.name,
+            Default::class.java.name,
+            OnReset::class.java.name
+        )
     }
 
-    override fun getSupportedSourceVersion(): SourceVersion {
-        return SourceVersion.latest()
-    }
+    override fun getSupportedSourceVersion() : SourceVersion = SourceVersion.latest()
 
     override fun process(annotations: MutableSet<out TypeElement>, roundEnv: RoundEnvironment): Boolean {
         roundEnv.getElementsAnnotatedWith(SharedPrefs::class.java)?.forEach { element ->
+            val className = element.simpleName.toString()
+            val packageName = processingEnv.elementUtils.getPackageOf(element).toString()
+
             val annotationValues = element.getAnnotation(SharedPrefs::class.java)
             privatePrefKeys = annotationValues.privatePrefKeys
             privateFileKey = annotationValues.privateFileKey
@@ -51,11 +57,20 @@ class SharedPrefsGenerator : AbstractProcessor() {
             val varList = getVarList(element)
             val prefs = assignDefaultsToPrefs(defaults, varList)
 
-            val className = element.simpleName.toString()
-            val packageName = processingEnv.elementUtils.getPackageOf(element).toString()
+            val resets = roundEnv.getElementsAnnotatedWith(OnReset::class.java)?.filter {
+                val enclosingAnnotation = it.enclosingElement?.getAnnotation(SharedPrefs::class.java)
+                enclosingAnnotation != null && it.enclosingElement.simpleName.toString() == className
+            }?.map { it.simpleName.toString() } ?: listOf()
 
-            val spec = generateContent(className, packageName, prefs)
+            if (resets.size > 1) {
+                messager.w("Found multiple reset method. Recommend only supplying a single reset method  \n")
+            }
 
+            if (showTraces) {
+                messager.w(" resets for $className : $resets  \n")
+            }
+
+            val spec = generateContent(className, packageName, prefs, resets )
             processingEnv.options[KAPT_KOTLIN_GENERATED_OPTION_NAME]?.let {
                 val file = File(it)
                 spec.writeTo(file)
@@ -135,7 +150,12 @@ class SharedPrefsGenerator : AbstractProcessor() {
             else -> throw java.lang.IllegalArgumentException("Default value must be a primitive type - $type ")
         }
 
-    private fun generateContent(className: String, packageName: String, prefs: List<PrefValues>) : FileSpec {
+    private fun generateContent(
+        className: String,
+        packageName: String,
+        prefs: List<PrefValues>,
+        resets: List<String>
+    ) : FileSpec {
         val fileBuilder = FileSpec.builder(packageName, "${className}Prefs")
         val classBuilder = TypeSpec.classBuilder("${className}Prefs")
             .addSuperinterface(ClassName(packageName, className))
@@ -195,11 +215,10 @@ class SharedPrefsGenerator : AbstractProcessor() {
                     .build()
             )
         }
-        keys.add(
-            PropertySpec.builder(className.toKey(), String::class, fileKeyModifiers)
+        val prefFileSimpleName = "${className.toKey()}_PREFS"
+        val prefFileKey = PropertySpec.builder(prefFileSimpleName, String::class, fileKeyModifiers)
                 .initializer("\"$packageName.$className.${className.toCamelCase()}_PREFS\"")
                 .build()
-        )
 
         val putFunction = FunSpec.builder("putValue")
             .addParameter("key", String::class)
@@ -222,13 +241,26 @@ class SharedPrefsGenerator : AbstractProcessor() {
                 }
             """.trimIndent().replace(" ", "·"))
 
-        val companionObject = TypeSpec.companionObjectBuilder().addProperties(keys)
-        classBuilder.addProperty(getSharedPreferencesPropertyBuilder(className.toKey()).build())
+        val resetFunctions = mutableListOf<FunSpec>()
+        resets.forEach { name ->
+            val func = FunSpec.builder(name)
+                .addModifiers(KModifier.OVERRIDE)
+            keys.forEach {
+                func.addCode("putValue(${it.name}, null)\n")
+            }
+            resetFunctions.add(func.build())
+        }
+
+        val companionObject = TypeSpec.companionObjectBuilder()
+            .addProperties(keys)
+            .addProperty(prefFileKey)
+        classBuilder.addProperty(getSharedPreferencesPropertyBuilder(prefFileSimpleName).build())
         classBuilder.addProperty(editorProperty
             .initializer("prefs.edit()")
             .build())
         classBuilder.addProperties(variables)
         classBuilder.addFunction(putFunction.build())
+        classBuilder.addFunctions(resetFunctions)
         classBuilder.addType(companionObject.build())
         if (useKoin) {
             fileBuilder.addImport("org.koin.core", "KoinComponent", "inject")
