@@ -299,6 +299,7 @@ class SharedPrefsGenerator : AbstractProcessor() {
                 if (spec.name in retentionList) continue
                 func.addCode("editor.remove(${spec.name})\n")
             }
+            func.addCode("editor.apply()")
             resetMethods.add(func.build())
         }
         return resetMethods
