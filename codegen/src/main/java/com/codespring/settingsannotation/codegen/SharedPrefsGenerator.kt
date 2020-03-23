@@ -59,10 +59,7 @@ class SharedPrefsGenerator : AbstractProcessor() {
             val prefs = assignDefaultsToPrefs(defaults, varList)
             val retentionList = getRetentionList(roundEnv)
 
-            val resets = roundEnv.getElementsAnnotatedWith(OnReset::class.java)?.filter {
-                val enclosingAnnotation = it.enclosingElement?.getAnnotation(SharedPrefs::class.java)
-                enclosingAnnotation != null && it.enclosingElement.simpleName.toString() == className
-            }?.map { it.simpleName.toString() } ?: listOf()
+            val resets = getResetMethods(roundEnv, className)
 
             if (resets.size > 1) {
                 messager.w("Found multiple reset method. Recommend only supplying a single reset method  \n")
@@ -81,6 +78,12 @@ class SharedPrefsGenerator : AbstractProcessor() {
         }
         return true
     }
+
+    private fun getResetMethods(roundEnv: RoundEnvironment, className: String): List<String> =
+        roundEnv.getElementsAnnotatedWith(OnReset::class.java)?.filter {
+            val enclosingAnnotation = it.enclosingElement?.getAnnotation(SharedPrefs::class.java)
+            enclosingAnnotation != null && it.enclosingElement.simpleName.toString() == className
+        }?.map { it.simpleName.toString() } ?: listOf()
 
     private fun assignDefaultsToPrefs(
         defaultList: HashMap<String, String?>,
@@ -294,7 +297,7 @@ class SharedPrefsGenerator : AbstractProcessor() {
             for (spec in keys) {
                 // Do not reset variables marked @Retain
                 if (spec.name in retentionList) continue
-                func.addCode("putValue(${spec.name}, null)\n")
+                func.addCode("editor.remove(${spec.name})\n")
             }
             resetMethods.add(func.build())
         }
