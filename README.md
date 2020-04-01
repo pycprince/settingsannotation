@@ -20,7 +20,7 @@ interface SystemSettings {
 
 ## Available Annotations
 
-#### `@SharedPref(<options>)`
+### `@SharedPref(<options>)`
 _Target: interface_
 
 Used to annotate an interface as a base `SharedPreferences` file.  The generated file name will be in the format \<interfaceName>Prefs.  So for 
@@ -59,7 +59,7 @@ class SystemSettingsPrefs : SystemSettings, KoinComponent {
 **Note:** This will require you to have a module definition for injecting a `SharedPreferences` instance that takes the file name as a parameter.
 
 
-#### `@Default(value: String)`
+### `@Default(value: String)`
 _Target: property_
 
 Properties annotated with `@Default` will use the default value specified in the case where the preference value has not been set yet.
@@ -76,14 +76,14 @@ The following values will be used as defaults if no default is specified:
 |`Long`|-1|
 
 
-#### `@Retain`
+### `@Retain`
 _Target: property_
 
 The values for the properties annotated with this will not be cleared when the `@OnReset` method is called
 
 
 
-#### `@OnReset`
+### `@OnReset`
 _Target: method_
 
 Creates a method that, when called, will clear all properties (unless annotated with `@Retain`). While more than one `OnReset` method can be generated, it is not recommended since each method will have the same generated code.
